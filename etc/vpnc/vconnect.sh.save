@@ -1,0 +1,3 @@
+#!/bin/bash
+vpnc --dpd-idle 120	 /etc/vpnc/vivacell.conf
+route add default gw 178.79.165.1
