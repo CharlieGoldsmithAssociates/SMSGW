@@ -60,7 +60,7 @@
   */
 'use strict';
  
-var ver = "1.00 Feb 2015";
+var ver = "1.01 Apr 2015";
 
 // parameters
 var cfg = require('./config');
@@ -76,9 +76,10 @@ var http = require('http');
 var querystring = require('querystring');
 var events = require('events');
 var wlog = require("./logger");
+var spawn = require('child_process').spawn;
 
 // With log(...)
-wlog.info("SMSGW Starting");  
+wlog.info("SMSGW Starting " + config.Name );
 
 // -----------------------------------------------------------------
 // Startup - start sessions, connect db, start http server etc.
@@ -139,6 +140,12 @@ eventEmitter.on('pdusaved', function(pdu,msgID)
 		});
 
 
+// HT Apr 15 reset comms link shell call
+if ( config.run_reset_script_at_start > 0 )
+{
+	ResetCommLink();
+}
+
 // -----------------------------------------------------------------
 // MAIN Timer loop - watchdog on the smpp connection which can reset 
 var watchdog =  setInterval( 
@@ -184,7 +191,13 @@ var watchdog =  setInterval(
 				session= smpp.connect(config.smpp_server2, config.smpp_port2);				
 			}
 			
-
+			// HT Apr 15 call reset script if configured..
+			if ( (config.connection_reset_count%2)==1 && config.connect_reset_script.length >0 )
+			{
+				ResetCommLink();
+			}
+			
+			
 			// send bind transceiver using shortcut method after connection
 			// session.bind_transceiver( options, callback)
 			// interface version 52 - hex 34 is essential for vivacel rss
@@ -578,7 +591,7 @@ function SavePDU ( pdu , state )
 				else
 					config.msgIdx ++;
 				// now this is async.. so we need to pass it back to caller
-				msgID=SavePDU_IdxSet ( pdu , state )
+				msgID=SavePDU_IdxSet ( pdu , state );
 				session.resume();
 				eventEmitter.emit('pdusaved', pdu,msgID );
 
@@ -606,6 +619,7 @@ function GetTS ( )
 
 function SavePDU_IdxSet ( pdu , state )
 {
+	var sSql="";
 	// msgID used in received response
 	var msgID = config.Prefix + "_" +config.msgIdx;
 	var msgSrc =  pdu.source_addr;
@@ -652,6 +666,7 @@ function SavePDU_IdxSet ( pdu , state )
 		
 function SaveHTTPReply( hType, hMsgID, hMsg )
 {
+	var sSql = "";
 	var hTS = GetTS();
 	
 	// store the message as received
@@ -715,18 +730,28 @@ function ProcessSSSAMSReply( hSrc, hMsg )
 		}
 		else if (  lines[i].indexOf('\t') > 0)
 		{
+			//MSG +211955482116\tVGW\tWelcome BOSCO YOSEA SIMBA this is now your default phone.
 			wlog.debug("Process SSSAMS reply line "+ lines[i] );
 			// split on tab
 			var fields = lines[i].split('\t');
-			if ( fields.length > 1)
+			if ( fields.length > 2)
 			{
-				wlog.info("Send SSSAMS reply msg to:"+ field[0] + " Msg:"+ field[1] );
-				SendSMS( field[0],field[1] );
+				// HT April 15, correct field fmt, message in field 2 not 1
+				var msgS = fields[0];
+				msgS = msgS.substr(4, msgS.length-4);
+				wlog.info("Send SSSAMS reply msg to:"+ msgS + " Msg:"+ fields[2] );
+				
+				SendSMS( msgS,fields[2] );
+			}
+			else
+			{
+				wlog.info("Unable to extract reply sms from http reply:"+ lines[i] );
+				
 			}
 		}
-		else
+		else if (lines[i].length >0 )
 		{
-			wlog.log("error","SERVER ERROR IGNORE  LINE "+ lines[i] );
+			wlog.log("error","SERVER ERROR IGNORE  LINE ["+ lines[i] +"]");
 		}
 	}
 }
@@ -757,3 +782,25 @@ function DoShutdown ()
 
 }
 
+// HT April 15 add reset link call
+function ResetCommLink ()
+{
+	if ( config.connect_reset_script.length > 1 )
+	{
+		wlog.log('info', 'call reset script: ' + config.connect_reset_script );
+		
+		var resetSc = spawn(config.connect_reset_script, ['']);
+		resetSc.stdout.on('data', function (data) {
+			wlog.log('warn', 'reset script: ' + data);
+		});
+
+		resetSc.stderr.on('data', function (data) {
+			wlog.log('warn', 'reset script: ' + data);
+		});
+
+		resetSc.on('exit', function (code) {
+		  wlog.log('warn', 'reset script exited with code ' + code);
+		});
+	}
+	
+}
