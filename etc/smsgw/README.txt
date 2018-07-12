@@ -61,7 +61,7 @@ Create database and tables
 	hMsg varchar(256)
 	);
 
-	CREATE USER 'smsgwUsr'@'localhost' IDENTIFIED BY '890usd098w$sw9^';
+	CREATE USER 'smsgwUsr'@'localhost' IDENTIFIED BY '';
 	GRANT SELECT,UPDATE,INSERT ON *.* TO 'smsgwUsr'@'localhost';
 
 Running the server
